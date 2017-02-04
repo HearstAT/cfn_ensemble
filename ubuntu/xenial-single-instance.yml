@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Xenial (20161214 AMI Build) - Base Template"
+Description: "Xenial (20161214 AMI Build) Ensemble Rails App"
 
 Parameters:
 ###############################################################################
@@ -203,6 +203,48 @@ Resources:
                 easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
             fi
             ##########################################################
+            # Install ruby
+            ##########################################################
+            apt-get install -y git-core curl zlib1g-dev build-essential libssl-dev libreadline-dev libyaml-dev libsqlite3-dev sqlite3 libxml2-dev libxslt1-dev libcurl4-openssl-dev python-software-properties libffi-dev nodejs
+            #cd ~
+            #wget http://ftp.ruby-lang.org/pub/ruby/2.2/ruby-2.2.6.tar.gz
+            #tar -xzvf ruby-2.2.6.tar.gz
+            #cd ruby-2.2.6/
+            #./configure
+            #make
+            #make install
+            #ruby -v
+            apt-get install -y ruby ruby-dev
+            gem install bundler
+            gem install rails -v 5.0.1
+            ##########################################################
+            # Install node
+            ##########################################################
+            curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
+            apt-get install -y nodejs
+            ##########################################################
+            # Install postgresql
+            ##########################################################
+            sh -c "echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
+            wget --quiet -O - http://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc | sudo apt-key add -
+            apt-get update && apt-get -y upgrade
+            apt-get install -y postgresql-common postgresql-9.5 libpq-dev
+            ##########################################################
+            # Install Rails App
+            ##########################################################
+            cd /opt
+            git clone https://github.com/HearstAT/ensemble.git
+            cd ensemble/
+            bundle install --without development
+            # update config/secrets.yml
+            #SECRET_KEY_BASE="$(bundle exec rake secret RAILS_ENV=production)"
+            #export SECRET_KEY_BASE
+            sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml
+            bundle exec bin/rails assets:precompile RAILS_ENV=production
+            bundle exec rake db:migrate RAILS_ENV=production
+            bundle exec rails s -e production --binding 0.0.0.0 -d
+            crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab -
+            ##########################################################
             # Helper function to set wait timer
             ##########################################################
             error_exit()
@@ -226,4 +268,4 @@ Resources:
     DependsOn: Ec2Instance
     Properties:
       Handle:  !Ref WaitHandle
-Timeout: '2300'
+      Timeout: '2300'
