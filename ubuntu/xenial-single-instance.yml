@@ -3,6 +3,17 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: "Xenial (20161214 AMI Build) Ensemble Rails App"
 
 Parameters:
+  ## Domain Configuration
+  HostedZone:
+    Type: String
+    Default: domain.com
+    Description: must match a route53 hosted domain/zone
+
+  SSLCertificateARN:
+    Type: String
+    Default: ''
+    Description: SSL Certficate ARN for SSL Certficate
+
 ###############################################################################
 # Instance and Network Configuration
 ###############################################################################
@@ -65,8 +76,75 @@ Parameters:
 
   CIDRA:
     Type: String
-    Default: 172.33.10.0/24
+    Default: 172.31.48.0/24
     Description: Subnet A CIDR Block
+
+  CIDRB:
+    Type: String
+    Default: 172.31.49.0/24
+    Description: Subnet B CIDR Block
+
+  DBSnapShot:
+    Type: String
+    Default: ''
+    Description: Enter ARN of DB Snapshot to Create Database From (Leave blank to create a fresh database)
+
+  ## Ensemble Configuration
+  MetricsSubdomain:
+    Type: String
+    Default: metrics-test
+    AllowedValues:
+      - metrics-a
+      - metrics-b
+      - metrics-test
+    Description: subdomain/prefix that is combined with the hosted zone entered
+
+  ## Database Configuration
+  DBUser:
+    Type: String
+    Default: ''
+    Description: Enter DB User Name (Required)
+
+  DBPassword:
+    Type: String
+    NoEcho: 'true'
+    Default: ''
+    Description: Enter DB Password (Required)
+
+  DBInstanceType:
+    Type: String
+    Default: db.t2.micro
+    AllowedValues:
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+    ConstraintDescription: must be a valid Postgresql instance type.
+
+  DBPublic:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Select True or False if you want your Database public facing
+
+  DBPublicCIDR:
+    Type: String
+    Default: ''
+    Description: Enter CIDR Range for Public Access (e.g.; 192.168.0.1/32, 172.33.0.0/16)
+
+  DBMultiAZ:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Select True or False for Multi Availability Zone DB Setup
+
+  DBURL:
+    Type: String
+    Default: ''
+    Description: Enter DB URL or VIP (External/Existing Only - Leave Empty to ignore)
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -80,6 +158,32 @@ Metadata:
         - VPC
         - SSHSecurityGroup
         - CIDRA
+      Label:
+        default: Metrics Configuration
+      Parameters:
+        - MetricsSubdomain
+    -
+      Label:
+        default: Database Configuration
+      Parameters:
+        - DBUser
+        - DBPassword
+        - DBInstanceType
+        - DBPublic
+        - DBPublicCIDR
+        - DBMultiAZ
+        - DBURL
+
+Conditions:
+  DBCon:
+    !Equals [ !Ref DBURL, '' ]
+  # Set necessary items if Snapshot ID present
+  DBSnapCon:
+    !Equals [ !Ref DBSnapShot, '' ]
+  DBPublicTrue:
+    !Equals [ !Ref DBPublic, 'true' ]
+  DBPublicFalse:
+    !Equals [ !Ref DBPublic, 'false' ]
 
 Mappings:
   RegionMap:
@@ -104,6 +208,55 @@ Resources:
           Value: !Ref AWS::StackId
         - Key: Network
           Value: "Public"
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      # Get Availability Zones and select first in string
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      CidrBlock: !Ref CIDRB
+      Tags:
+        - Key: Name
+          Value: Public-Subnet-B
+        - Key: Application
+          Value: !Ref AWS::StackId
+        - Key: Network
+          Value: "Public"
+
+  # Create the necessary subnet for RDS PostgreSQL
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: DBCon
+    Properties:
+      DBSubnetGroupDescription: "Metrics DB Subnet Group"
+      SubnetIds:
+          - !Ref SubnetA
+          - !Ref SubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub "${MetricsSubdomain} DB Subnet Group"
+
+  DBSecurityGroup:
+    Type: AWS::RDS::DBSecurityGroup
+    Condition: DBCon
+    Condition: DBPublicFalse
+    Properties:
+      EC2VpcId: !Ref VPC
+      DBSecurityGroupIngress:
+        - EC2SecurityGroupId: !Ref ServerSecurityGroup
+      GroupDescription: "Metrics Database Access Group"
+
+  DBSecurityGroupPublic:
+    Type: AWS::RDS::DBSecurityGroup
+    Condition: DBCon
+    Condition: DBPublicTrue
+    Properties:
+      EC2VpcId: !Ref VPC
+      DBSecurityGroupIngress:
+        - EC2SecurityGroupId: !Ref ServerSecurityGroup
+        - CIRDIP: !Ref DBPublicCIDR
+      GroupDescription: "Metrics Database Access Group w/ Public"
+
 
   ServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -115,6 +268,10 @@ Resources:
           FromPort: '80'
           ToPort: '80'
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
         - IpProtocol: tcp
           FromPort: '0'
@@ -123,6 +280,36 @@ Resources:
       Tags:
         - Key: Name
           Value: Server-Security-Group
+
+###############################################################################
+# PostgreSQL DB
+###############################################################################
+
+  MetricsDB:
+    Type: AWS::RDS::DBInstance
+    Condition: DBCon
+    DeletionPolicy: Delete
+    Properties:
+      DBName: !If [ DBSnapCon, 'metricsdb', '' ]
+      AllocatedStorage: 50
+      DBInstanceIdentifier: !Sub ${MetricsSubdomain}-db
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceType
+      DBSnapshotIdentifier: !Ref DBSnapShot
+      MonitoringInterval: 5
+      MultiAZ: !Ref DBMultiAZ
+      Engine: postgres
+      EngineVersion: 9.5.4
+      AutoMinorVersionUpgrade: true
+      BackupRetentionPeriod: 14
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBSecurityGroups:
+        - !Ref DBSecurityGroup
+      PubliclyAccessible: !If [ DBPublicTrue, true, false ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-pgdb
 
   InstanceRole:
     Type: AWS::IAM::Role
