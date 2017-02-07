@@ -370,89 +370,90 @@ Resources:
       IamInstanceProfile: !Ref InstanceProfile
       UserData:
         "Fn::Base64":
-          "Fn::Sub": |
-            #!/bin/bash -xev
-            ##########################################################
-            # Upgrade OS & Install Dependencies
-            ##########################################################
-            apt-get update && apt-get -y upgrade
-            apt-get install -y wget curl python-setuptools python-pip git
-            ##########################################################
-            # Global Variable Set
-            ##########################################################
-            export DEBIAN_FRONTEND=noninteractive
-            export INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-            export STACKNAME='${AWS::StackName}'
-            ##########################################################
-            # Install cfn bootstraping tools
-            ##########################################################
-            if [ -z $(command -v cfn-signal) ]; then
-                easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
-            fi
-            ##########################################################
-            # Install ruby
-            ##########################################################
-            apt-get install -y git-core curl zlib1g-dev build-essential libssl-dev libreadline-dev libyaml-dev libsqlite3-dev sqlite3 libxml2-dev libxslt1-dev libcurl4-openssl-dev python-software-properties libffi-dev nodejs
-            #cd ~
-            #wget http://ftp.ruby-lang.org/pub/ruby/2.2/ruby-2.2.6.tar.gz
-            #tar -xzvf ruby-2.2.6.tar.gz
-            #cd ruby-2.2.6/
-            #./configure
-            #make
-            #make install
-            #ruby -v
-            apt-get install -y ruby ruby-dev
-            gem install bundler
-            gem install rails -v 5.0.1
-            ##########################################################
-            # Install node
-            ##########################################################
-            curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
-            apt-get install -y nodejs
-            ##########################################################
-            # Install postgresql
-            ##########################################################
-            sh -c "echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
-            wget --quiet -O - http://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc | sudo apt-key add -
-            apt-get update && apt-get -y upgrade
-            apt-get install -y postgresql-common postgresql-9.5 libpq-dev
-            ##########################################################
-            # Install Rails App
-            ##########################################################
-            cd /opt
-            git clone https://github.com/HearstAT/ensemble.git
-            cd ensemble/
-            bundle install --without development
-            # update config/secrets.yml
-            #SECRET_KEY_BASE="$(bundle exec rake secret RAILS_ENV=production)"
-            #export SECRET_KEY_BASE
-            sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml
-            bundle exec bin/rails assets:precompile RAILS_ENV=production
-            ##########################################################
-            # Configure postgresql
-            ##########################################################
-            sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml
-            bundle exec rake db:migrate RAILS_ENV=production
-            bundle exec rails s -e production --binding 0.0.0.0 -d
-            crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab -
-            ##########################################################
-            # Helper function to set wait timer
-            ##########################################################
-            error_exit()
-            {
-              cfn-signal -e 1 -r "$1" "${WaitHandle}"
-              exit 1
-            }
-            export -f error_exit
-            ##########################################################
-            # Send Success Signal to CFN Wait Handle
-            ##########################################################
-            /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' "${WaitHandle}"
-            ##########################################################
-            # Reboot After Success for all updates made
-            ##########################################################
-            reboot
-          - { DBENDPOINT: !If [ DBCon, !GetAtt MetricsDB.Endpoint.Address, !Ref DBURL ] }
+          "Fn::Sub": 
+            - |
+              #!/bin/bash -xev
+              ##########################################################
+              # Upgrade OS & Install Dependencies
+              ##########################################################
+              apt-get update && apt-get -y upgrade
+              apt-get install -y wget curl python-setuptools python-pip git
+              ##########################################################
+              # Global Variable Set
+              ##########################################################
+              export DEBIAN_FRONTEND=noninteractive
+              export INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+              export STACKNAME='${AWS::StackName}'
+              ##########################################################
+              # Install cfn bootstraping tools
+              ##########################################################
+              if [ -z $(command -v cfn-signal) ]; then
+                  easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+              fi
+              ##########################################################
+              # Install ruby
+              ##########################################################
+              apt-get install -y git-core curl zlib1g-dev build-essential libssl-dev libreadline-dev libyaml-dev libsqlite3-dev sqlite3 libxml2-dev libxslt1-dev libcurl4-openssl-dev python-software-properties libffi-dev nodejs
+              #cd ~
+              #wget http://ftp.ruby-lang.org/pub/ruby/2.2/ruby-2.2.6.tar.gz
+              #tar -xzvf ruby-2.2.6.tar.gz
+              #cd ruby-2.2.6/
+              #./configure
+              #make
+              #make install
+              #ruby -v
+              apt-get install -y ruby ruby-dev
+              gem install bundler
+              gem install rails -v 5.0.1
+              ##########################################################
+              # Install node
+              ##########################################################
+              curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
+              apt-get install -y nodejs
+              ##########################################################
+              # Install postgresql
+              ##########################################################
+              sh -c "echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
+              wget --quiet -O - http://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc | sudo apt-key add -
+              apt-get update && apt-get -y upgrade
+              apt-get install -y postgresql-common postgresql-9.5 libpq-dev
+              ##########################################################
+              # Install Rails App
+              ##########################################################
+              cd /opt
+              git clone https://github.com/HearstAT/ensemble.git
+              cd ensemble/
+              bundle install --without development
+              # update config/secrets.yml
+              #SECRET_KEY_BASE="$(bundle exec rake secret RAILS_ENV=production)"
+              #export SECRET_KEY_BASE
+              sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml
+              bundle exec bin/rails assets:precompile RAILS_ENV=production
+              ##########################################################
+              # Configure postgresql
+              ##########################################################
+              sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml
+              bundle exec rake db:migrate RAILS_ENV=production
+              bundle exec rails s -e production --binding 0.0.0.0 -d
+              crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab -
+              ##########################################################
+              # Helper function to set wait timer
+              ##########################################################
+              error_exit()
+              {
+                cfn-signal -e 1 -r "$1" "${WaitHandle}"
+                exit 1
+              }
+              export -f error_exit
+              ##########################################################
+              # Send Success Signal to CFN Wait Handle
+              ##########################################################
+              /usr/local/bin/cfn-signal -e 0 -r 'Server setup complete' "${WaitHandle}"
+              ##########################################################
+              # Reboot After Success for all updates made
+              ##########################################################
+              reboot
+            - { DBENDPOINT: !If [ DBCon, !GetAtt MetricsDB.Endpoint.Address, !Ref DBURL ] }
   WaitHandle:
     Type: AWS::CloudFormation::WaitConditionHandle
   WaitCondition:
