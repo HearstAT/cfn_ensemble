@@ -428,6 +428,10 @@ Resources:
             #export SECRET_KEY_BASE
             sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml
             bundle exec bin/rails assets:precompile RAILS_ENV=production
+            ##########################################################
+            # Configure postgresql
+            ##########################################################
+            sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml
             bundle exec rake db:migrate RAILS_ENV=production
             bundle exec rails s -e production --binding 0.0.0.0 -d
             crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab -
@@ -448,6 +452,7 @@ Resources:
             # Reboot After Success for all updates made
             ##########################################################
             reboot
+          - { DBENDPOINT: !If [ DBCon, !GetAtt MetricsDB.Endpoint.Address, !Ref DBURL ] }
   WaitHandle:
     Type: AWS::CloudFormation::WaitConditionHandle
   WaitCondition:
