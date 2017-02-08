@@ -391,6 +391,16 @@ Resources:
                   easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
               fi
               ##########################################################
+              # Helper function to set wait timer
+              ##########################################################
+              error_exit()
+              {
+                cfn-signal -e 1 -r "$1" "${WaitHandle}"
+                exit 1
+              }
+              export -f error_exit
+
+              ##########################################################
               # Install ruby
               ##########################################################
               apt-get install -y git-core curl zlib1g-dev build-essential libssl-dev libreadline-dev libyaml-dev libsqlite3-dev sqlite3 libxml2-dev libxslt1-dev libcurl4-openssl-dev python-software-properties libffi-dev nodejs
@@ -402,49 +412,42 @@ Resources:
               #make
               #make install
               #ruby -v
-              apt-get install -y ruby ruby-dev
-              gem install bundler
-              gem install rails -v 5.0.1
+              apt-get install -y ruby ruby-dev || error_exit "Ruby could not be installed"
+              gem install bundler || error_exit "Bundler could not be installed"
+              gem install rails -v 5.0.1 || error_exit "Rails could not be installed"
               ##########################################################
               # Install node
               ##########################################################
               curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
-              apt-get install -y nodejs
+              apt-get install -y nodejs || error_exit "Node could not be installed"
               ##########################################################
               # Install postgresql
               ##########################################################
               sh -c "echo 'deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
               wget --quiet -O - http://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc | sudo apt-key add -
-              apt-get update && apt-get -y upgrade
-              apt-get install -y postgresql-common postgresql-9.5 libpq-dev
+              apt-get update && apt-get -y upgrade || error_exit "Failed apt-get upgrade"
+              apt-get install -y postgresql-common postgresql-9.5 libpq-dev || error_exit "Postgres could not be installed"
               ##########################################################
               # Install Rails App
               ##########################################################
               cd /opt
-              git clone https://github.com/HearstAT/ensemble.git
+              git clone https://github.com/HearstAT/ensemble.git || error_exit "Failed to clone ensemble project"
               cd ensemble/
-              bundle install --without development
+              bundle install --without development || error_exit "Could not bundle"
               # update config/secrets.yml
               #SECRET_KEY_BASE="$(bundle exec rake secret RAILS_ENV=production)"
               #export SECRET_KEY_BASE
-              sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml
-              bundle exec bin/rails assets:precompile RAILS_ENV=production
+              sed -i '/.*SECRET_KEY_BASE.*/c\'"  secret_key_base: `bundle exec rake secret RAILS_ENV=production`"'' /opt/ensemble/config/secrets.yml || error_exit "Failed to set rails secret"
+              bundle exec bin/rails assets:precompile RAILS_ENV=production || error_exit "Failed to precompile assets"
               ##########################################################
               # Configure postgresql
               ##########################################################
-              sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml
-              bundle exec rake db:migrate RAILS_ENV=production
-              bundle exec rails s -e production --binding 0.0.0.0 -d
-              crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab -
-              ##########################################################
-              # Helper function to set wait timer
-              ##########################################################
-              error_exit()
-              {
-                cfn-signal -e 1 -r "$1" "${WaitHandle}"
-                exit 1
-              }
-              export -f error_exit
+              sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml || error_exit "Failed to configure database"
+              bundle exec rake db:create RAILS_ENV=production || error_exit "Failed to migrate data for rails app."
+              bundle exec rake db:migrate RAILS_ENV=production || error_exit "Failed to migrate data for rails app."
+              bundle exec rails s -e production --binding 0.0.0.0 -d || error_exit "Failed to start Rails Server"
+              crontab -l | { cat; echo "@reboot sleep 60;cd /opt/ensemble/;sudo -u ubuntu sudo /usr/local/bin/bundle exec rails s -e production --binding 0.0.0.0 -d >> /var/log/syslog"; } | crontab - || error_exit "Failed to set crontab for restart."
+
               ##########################################################
               # Send Success Signal to CFN Wait Handle
               ##########################################################
@@ -453,7 +456,7 @@ Resources:
               # Reboot After Success for all updates made
               ##########################################################
               reboot
-            - { DBENDPOINT: !If [ DBCon, !GetAtt MetricsDB.Endpoint.Address, !Ref DBURL ] }
+            - DBENDPOINT: !If [ DBCon, !GetAtt MetricsDB.Endpoint.Address, !Ref DBURL ]
   WaitHandle:
     Type: AWS::CloudFormation::WaitConditionHandle
   WaitCondition:
