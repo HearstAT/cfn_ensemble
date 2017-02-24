@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Xenial (20161214 AMI Build) Ensemble Rails App"
+Description: "Xenial (20170222 AMI Build) Ensemble Rails App"
 
 Parameters:
   ## Domain Configuration
@@ -190,7 +190,7 @@ Mappings:
     us-west-2:
       HVM64: ami-b7a114d7
     eu-west-1:
-      HVM64: ami-6f587e1c
+      HVM64: ami-405f7226
 
 Resources:
   # Create the necessary subnets for ELB
@@ -257,7 +257,6 @@ Resources:
         - CIRDIP: !Ref DBPublicCIDR
       GroupDescription: "Metrics Database Access Group w/ Public"
 
-
   ServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -265,9 +264,32 @@ Resources:
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
+          FromPort: '3000'
+          ToPort: '3000'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '3000'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
           FromPort: '80'
-          ToPort: '80'
+          ToPort: '9090'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '0'
+          ToPort: '65535'
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: Server-Security-Group
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Setup Ingress/Egress for Metrics Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: '443'
           ToPort: '443'
@@ -279,7 +301,54 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: Server-Security-Group
+          Value: !Sub ${MetricsSubdomain}-ELB-SecurityGroup
+
+###############################################################################
+# LoadBalancer and DNS
+###############################################################################
+
+  PrimaryElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      HealthCheck:
+        HealthyThreshold: '2'
+        Interval: '90'
+        Target: tcp:3000
+        Timeout: '60'
+        UnhealthyThreshold: '10'
+      Subnets:
+        - !Ref SubnetA
+        - !Ref SubnetB
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      LBCookieStickinessPolicy:
+        - PolicyName: PublicELBCookieStickinessPolicy
+          CookieExpirationPeriod: '3600'
+      Listeners:
+        - InstancePort: '3000'
+          LoadBalancerPort: '443'
+          InstanceProtocol: HTTP
+          Protocol: HTTPS
+          PolicyNames:
+            - PublicELBCookieStickinessPolicy
+          SSLCertificateId: !Ref SSLCertificateARN
+      Tags:
+        - Key: Name
+          Value: !Sub ${MetricsSubdomain}-ELB
+
+  MetricsDNS:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      # Use sub to treat params and resources like variables http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/intrinsic-function-reference-sub.html
+      HostedZoneName: !Sub "${HostedZone}."
+      Comment: !Sub Zone apex alias targeted to ${MetricsSubdomain} ELB.
+      RecordSets:
+          # Create DNS A Record by joining MetricsSubdomain + HostedZone
+        - Name: !Join [ '', [ !Ref MetricsSubdomain, ".", !Ref HostedZone, "." ] ]
+          Type: A
+          AliasTarget:
+            HostedZoneId: !GetAtt PrimaryElasticLoadBalancer.CanonicalHostedZoneNameID
+            DNSName: !GetAtt PrimaryElasticLoadBalancer.CanonicalHostedZoneName
 
 ###############################################################################
 # PostgreSQL DB
