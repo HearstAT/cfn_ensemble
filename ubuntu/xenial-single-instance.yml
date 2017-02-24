@@ -84,6 +84,11 @@ Parameters:
     Default: 172.31.49.0/24
     Description: Subnet B CIDR Block
 
+  ExistingBucketName:
+    Type: String
+    Default: ''
+    Description: Enter a Existing Bucket Name to to use (Leave blank to create new)
+
   DBSnapShot:
     Type: String
     Default: ''
@@ -177,6 +182,8 @@ Metadata:
 Conditions:
   DBCon:
     !Equals [ !Ref DBURL, '' ]
+  MetricsBucketCon:
+    !Equals [ !Ref ExistingBucketName, '' ]
   # Set necessary items if Snapshot ID present
   DBSnapCon:
     !Equals [ !Ref DBSnapShot, '' ]
@@ -245,6 +252,68 @@ Resources:
       DBSecurityGroupIngress:
         - EC2SecurityGroupId: !Ref ServerSecurityGroup
       GroupDescription: "Metrics Database Access Group"
+
+###############################################################################
+# S3 Buckets
+###############################################################################
+
+  MetricsBucket:
+    Type: AWS::S3::Bucket
+    # conditional look up, if true then creates this resource.
+    Condition: MetricsBucketCon
+    DeletionPolicy: Retain
+    Properties:
+      AccessControl: Private
+
+###############################################################################
+# Security: IAM, Groups, Instance Profiles
+###############################################################################
+
+  MetricsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref MetricsRole
+
+  MetricsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  RolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${AWS::StackName}-MetricsServer-Policy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Allow all actions to one bucket (the supplied one, or the one you provided)
+          - Action: s3:*
+            Effect: Allow
+            Resource:
+              - !Join ['', [ 'arn:aws:s3:::', !If [MetricsBucketCon, !Ref MetricsBucket, !Ref ExistingBucketName] ]]
+              - !Join ['', [ 'arn:aws:s3:::', !If [MetricsBucketCon, !Ref MetricsBucket, !Ref ExistingBucketName], '/*' ]]
+          # Allow ability to list all buckets
+          - Action: s3:List*
+            Effect: Allow
+            Resource: arn:aws:s3:::*
+          # Allow instances to read their own tags (needed for setup script below)
+          - Action: ec2:DescribeTags
+            Effect: Allow
+            Resource: "*"
+      Roles:
+        - !Ref MetricsRole
 
   DBSecurityGroupPublic:
     Type: AWS::RDS::DBSecurityGroup
@@ -380,44 +449,6 @@ Resources:
         - Key: Name
           Value: !Sub ${AWS::StackName}-pgdb
 
-  InstanceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          -
-            Effect: "Allow"
-            Principal:
-              Service:
-                - "ec2.amazonaws.com"
-            Action:
-              - "sts:AssumeRole"
-      Path: "/"
-
-  # Just a placeholder role, please don't use this for real!
-  RolePolicies:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: "root"
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          -
-            Effect: "Allow"
-            Action: "*"
-            Resource: "*"
-      Roles:
-        - !Ref InstanceRole
-
-  InstanceProfile:
-    Type: "AWS::IAM::InstanceProfile"
-    Properties:
-      Path: "/"
-      Roles:
-        -
-          !Ref InstanceRole
-
   Ec2Instance:
     Type: AWS::EC2::Instance
     Properties:
@@ -436,7 +467,7 @@ Resources:
         - DeviceName: "/dev/sda1"
           Ebs:
             VolumeSize: '15'
-      IamInstanceProfile: !Ref InstanceProfile
+      IamInstanceProfile: !Ref MetricsInstanceProfile
       UserData:
         "Fn::Base64":
           "Fn::Sub": 
