@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "Xenial (20170222 AMI Build) Ensemble Rails App"
+Description: "Xenial (20170307 AMI Build) Ensemble Rails App"
 
 Parameters:
   ## Domain Configuration
@@ -195,7 +195,7 @@ Conditions:
 Mappings:
   RegionMap:
     us-west-2:
-      HVM64: ami-b7a114d7
+      HVM64: ami-7ac6491a
     eu-west-1:
       HVM64: ami-405f7226
 
@@ -342,7 +342,7 @@ Resources:
           SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
         - IpProtocol: tcp
           FromPort: '80'
-          ToPort: '9090'
+          ToPort: '3000'
           SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: tcp
@@ -385,9 +385,10 @@ Resources:
         Target: tcp:3000
         Timeout: '60'
         UnhealthyThreshold: '10'
+      Instances:
+        - !Ref Ec2Instance
       Subnets:
         - !Ref SubnetA
-        - !Ref SubnetB
       SecurityGroups:
         - !Ref LoadBalancerSecurityGroup
       LBCookieStickinessPolicy:
@@ -514,7 +515,7 @@ Resources:
               #ruby -v
               apt-get install -y ruby ruby-dev || error_exit "Ruby could not be installed"
               gem install bundler || error_exit "Bundler could not be installed"
-              gem install rails -v 5.0.1 || error_exit "Rails could not be installed"
+              #gem install rails -v 5.0.1 || error_exit "Rails could not be installed"
               ##########################################################
               # Install node
               ##########################################################
@@ -543,6 +544,7 @@ Resources:
               # Configure postgresql
               ##########################################################
               sed -i '/.*update-me.rds.amazonaws.com.*/c\'"  host: ${DBENDPOINT}"'' /opt/ensemble/config/database.yml || error_exit "Failed to configure database"
+              sed -i '/.*password: changeme*/c\'"  password: ${DBPassword}"'' /opt/ensemble/config/database.yml || error_exit "Failed to configure database"
               bundle exec rake db:create RAILS_ENV=production || error_exit "Failed to migrate data for rails app."
               bundle exec rake db:migrate RAILS_ENV=production || error_exit "Failed to migrate data for rails app."
               bundle exec rails s -e production --binding 0.0.0.0 -d || error_exit "Failed to start Rails Server"
