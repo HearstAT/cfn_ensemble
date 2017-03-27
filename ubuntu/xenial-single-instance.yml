@@ -524,9 +524,9 @@ Resources:
               cd ensemble
               aws s3 sync s3://${BUCKET}/ /opt/ensemble || error_exit "Failed to sync docker environment"
               docker-compose up -d --build 
-              docker-compose exec website rails db:create
-              docker-compose exec website rails db:migrate
-              docker-compose exec website rake gather:pagerduty_incidents
+              docker-compose exec -T website rails db:create
+              docker-compose exec -T website rails db:migrate
+              docker-compose exec -T website rake gather:pagerduty_incidents
 
               ##########################################################
               # Send Success Signal to CFN Wait Handle
