@@ -523,10 +523,10 @@ Resources:
               git clone https://github.com/HearstAT/ensemble.git || error_exit "Failed to git clone ensemble"
               cd ensemble
               aws s3 sync s3://${BUCKET}/ /opt/ensemble || error_exit "Failed to sync docker environment"
-              docker-compose up --build 
-              docker-compose exec --user "$(id -u):$(id -g)" website rails db:create
-              docker-compose exec --user "$(id -u):$(id -g)" website rails db:migrate
-              docker-compose exec --user "$(id -u):$(id -g)" website rake gather:pagerduty_incidents
+              docker-compose up -d --build 
+              docker-compose exec website rails db:create
+              docker-compose exec website rails db:migrate
+              docker-compose exec website rake gather:pagerduty_incidents
 
               ##########################################################
               # Send Success Signal to CFN Wait Handle
