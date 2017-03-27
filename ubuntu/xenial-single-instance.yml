@@ -522,8 +522,6 @@ Resources:
               cd opt
               git clone https://github.com/HearstAT/ensemble.git || error_exit "Failed to git clone ensemble"
               cd ensemble
-              # temporary checkout docker branch
-              git checkout docker
               aws s3 sync s3://${BUCKET}/ /opt/ensemble || error_exit "Failed to sync docker environment"
               docker-compose up --build 
               docker-compose exec --user "$(id -u):$(id -g)" website rails db:create
